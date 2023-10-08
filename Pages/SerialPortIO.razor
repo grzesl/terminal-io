@@ -1,0 +1,191 @@
+@page "/serialportio"
+@implements IDisposable
+@inject IJSRuntime JS
+
+<PageTitle>Serial Port</PageTitle>
+
+<MudCard Outlined="true">
+
+    <MudCardHeader>
+        <CardHeaderContent>
+            <MudText Typo="Typo.h5">COM Port Settings</MudText>
+        </CardHeaderContent>
+    </MudCardHeader>
+
+    <MudCardContent>
+
+        <MudGrid>
+            <MudItem xs="12" sm="4">
+                <MudSelect T="string"  @bind-Value="PortName" Label="Available ports" Variant="Variant.Outlined"
+                    AnchorOrigin="Origin.BottomCenter">
+                    @foreach (var port in AvaliablePorts)
+                    {
+                        <MudSelectItem Value="@port" />
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudTextField @bind-Value="CustomPortName" Label="Custom port name"
+                    HelperText="Example COM1 on Windows or /dev/tty on Linux" Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12" sm="4">
+
+                <MudSelect T="string"  @bind-Value="BaudRate" Label="BaudRate" Variant="Variant.Outlined"
+                    AnchorOrigin="Origin.BottomCenter">
+                    @foreach (var port in AvaliableBaudRates)
+                    {
+                        <MudSelectItem Value="@port" />
+                    }
+                </MudSelect>
+            </MudItem>
+        </MudGrid>
+
+        
+    </MudCardContent>
+    <MudCardActions>
+        @if (_serialPort.IsOpen) 
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Error" @onclick="closeSerialPort">Close Port</MudButton>
+        }
+        else
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" @onclick="openSerialPort">Open Port</MudButton>
+        }
+    </MudCardActions>
+</MudCard>
+
+<MudGrid >
+    <MudItem xs="12" sm="10">
+        <MudTextField T="string" Label="Data to send" Variant="Variant.Outlined" @bind-Value="DataToSend" Lines="4" />
+
+    </MudItem>
+
+    @if (_serialPort.IsOpen)
+    {
+    <MudItem xs="12" sm="2" Class="d-flex align-center justify-center mud-width-full py-8">
+        <MudButton Class="d-flex align-center justify-center mud-width-full py-8" Variant="Variant.Filled" Color="Color.Primary" @onclick="sendSerialPort">Send</MudButton>
+    </MudItem>
+    }
+    else 
+    {
+    <MudItem xs="12" sm="2" Class="d-flex align-center justify-center mud-width-full py-8">
+        <MudPaper Class="d-flex align-center justify-center mud-width-full py-8"  Outlined="true">Send</MudPaper>
+    </MudItem>
+    }
+</MudGrid>
+
+<MudGrid >
+    <MudItem xs="12" sm="12">
+        <MudTextField  @ref="_textField" T="string" Label="Data read" ReadOnly="true" Variant="Variant.Outlined" Text="@DataRead" Lines="4" />
+    </MudItem>
+</MudGrid>
+
+
+@code {
+
+
+    private string [] AvaliablePorts { get; set; } = new string[1] {"None"};
+    private string [] AvaliableBaudRates{ get; set; } = new string[11] {"1200","2400", "4800", "9600", "14400", "19200", "38400", "57600", "115200", "128000", "256000"};
+    private string _PortName = String.Empty;
+    private MudTextField<string> _textField;
+    private string PortName
+    {
+        get {
+            return _PortName;
+        }
+        set
+        {
+            CustomPortName = value;
+            _PortName = value;
+        }
+    }
+
+    private string CustomPortName { get; set; }
+    private string DataToSend { get; set; } = String.Empty;
+    private string DataRead { get; set; } = String.Empty;
+    private string BaudRate { get; set; }
+    SerialPort _serialPort = new SerialPort();
+
+
+    protected override Task OnInitializedAsync()
+    {
+        var ports = SerialPort.GetPortNames();
+        if (ports.Length > 0) {
+            AvaliablePorts = ports;
+            PortName = AvaliablePorts[0];
+        }
+
+        BaudRate = "9600";
+        
+        return base.OnInitializedAsync();
+    }
+
+    public void setSerialPortParams()
+    {
+        _serialPort.PortName = CustomPortName;
+        _serialPort.BaudRate = Int32.Parse( BaudRate);    
+    }
+
+    public void openSerialPort()
+    {
+        setSerialPortParams();
+
+
+        _serialPort.DataReceived += new SerialDataReceivedEventHandler(DataReceivedHandler);
+        _serialPort.Open();
+        
+
+    }
+
+
+    private void DataReceivedHandler(
+                        object sender,
+                        SerialDataReceivedEventArgs e)
+    {
+        SerialPort sp = (SerialPort)sender;
+        string indata = sp.ReadExisting();
+
+        DataRead = DataRead + indata;
+
+       // _textField.SetText(DataRead);
+
+      // InvokeAsync(() => _textField.ForceRender(true));
+        InvokeAsync(() => StateHasChanged());
+        JS.InvokeVoidAsync("scrollToEnd", new object[] { _textField.InputReference.ElementReference});
+    
+    }
+
+    public void closeSerialPort()
+    {
+        _serialPort.Close();
+    }
+
+    public void sendSerialPort()
+    {
+
+        _serialPort.Write(DataToSend);
+    }
+
+    void IDisposable.Dispose()
+    {
+        if(_serialPort.IsOpen)
+            _serialPort.Close();
+    }
+
+    private async Task Update(ChangeEventArgs args) {
+        string dataRead = DataRead;
+        DataRead = string.Empty;
+        await Task.Delay(1);
+        DataRead = dataRead;
+
+        Console.WriteLine("Data READ Event");
+    }
+    async Task TextChanged(string text)
+    {
+        StateHasChanged();
+        // Yields and lets the Renderer service it's queue
+        await Task.Yield();
+        
+        await JS.InvokeVoidAsync("scrollToEnd", new object[] { _textField.InputReference.ElementReference});
+    }
+}
